@@ -20,7 +20,7 @@ mod types;
 
 use crate::compiler::ast::{AttributeValue, Model};
 use crate::compiler::metamodel::Metamodel;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 /// The metadata definitions of the profile: the levels, then the kinds
 /// SysML cannot tell by itself.
@@ -39,7 +39,7 @@ pub fn export(model: &Model) -> String {
 /// Where an element is declared: its package, and the names that lead to
 /// it from there (`'LC-1'`, then `'LC-2'` for a component it holds, then
 /// `radar` for a port), as written in the text.
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 struct Target {
     package: String,
     segments: Vec<String>,
@@ -62,11 +62,19 @@ pub(crate) struct Exporter<'m> {
     /// Segments naming a variant: no feature chain goes through one, a
     /// variant is a choice of its variation, not a feature of it.
     variants: std::collections::HashSet<String>,
+    /// Where the functions (actions) are declared.
+    functions: HashSet<Target>,
+    /// The items a function is given for the exchanges that end on it as
+    /// a whole: `(direction, name, exchange item)`.
+    implied: HashMap<Target, Vec<(&'static str, String, String)>>,
+    /// The items of the source and of the target such an exchange flows
+    /// between, by `levels::exchange_key`.
+    implied_ends: HashMap<String, (String, String)>,
 }
 
 impl<'m> Exporter<'m> {
     fn new(model: &'m Model) -> Self {
-        Exporter { model, metamodel: Metamodel::current(), out: String::new(), depth: 0, units: BTreeSet::new(), targets: HashMap::new(), package: String::new(), undeclared: Vec::new(), types: crate::compiler::types::effective_types(&model.types).unwrap_or_default(), variants: crate::compiler::variability::variations(model).iter().flat_map(|v| v.variants.iter().map(|(id, _)| text::name(id))).collect() }
+        Exporter { model, metamodel: Metamodel::current(), out: String::new(), depth: 0, units: BTreeSet::new(), targets: HashMap::new(), package: String::new(), undeclared: Vec::new(), types: crate::compiler::types::effective_types(&model.types).unwrap_or_default(), variants: crate::compiler::variability::variations(model).iter().flat_map(|v| v.variants.iter().map(|(id, _)| text::name(id))).collect(), functions: HashSet::new(), implied: HashMap::new(), implied_ends: HashMap::new() }
     }
 
     fn line(&mut self, text: &str) {
@@ -214,6 +222,7 @@ impl<'m> Exporter<'m> {
         levels::register(self);
         behavior::register(self);
         security::register(self);
+        levels::imply_items(self);
     }
 
     /// Units the SI library does not declare, declared locally as the

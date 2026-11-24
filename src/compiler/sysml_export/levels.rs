@@ -7,7 +7,7 @@
 //! ports and the components it holds; exchanges are flows and connections
 //! between feature chains (`'SF-1'.raw`, `'LC-1'.'LC-2'.radar`).
 
-use super::{data, id_of, text, Exporter};
+use super::{data, id_of, text, Exporter, Target};
 use crate::compiler::ast::*;
 use std::collections::HashMap;
 
@@ -129,6 +129,7 @@ pub(super) fn register_function<F: Function>(e: &mut Exporter<'_>, package: &str
     let mut segments = base.to_vec();
     segments.push(text::name(&id));
     e.register_at(package, segments.clone(), &id, &[f.id(), f.name()]);
+    e.functions.insert(Target { package: package.to_string(), segments: segments.clone() });
     for port in f.ports() {
         let mut path = segments.clone();
         path.push(text::name(&port.name));
@@ -296,6 +297,11 @@ pub(super) fn function<F: Function>(e: &mut Exporter<'_>, kind: &str, f: &F, key
             let short = if port.id.is_empty() { String::new() } else { format!("{} ", text::short(&port.id)) };
             e.line(&format!("{} item {short}{} : {ty};", data::direction(&port.direction), text::name(&port.name)));
         }
+        let implied = e.targets.get(f.written()).and_then(|t| e.implied.get(t)).cloned().unwrap_or_default();
+        for (direction, name, item) in implied {
+            let typing = if item.is_empty() { String::new() } else { format!(" : {}", data::type_reference(e, &item)) };
+            e.line(&format!("{direction} item {}{typing};", text::name(&name)));
+        }
         for sub in f.subs() {
             function(e, kind, sub, "action");
         }
@@ -387,13 +393,81 @@ fn connector_head(id: &str, label: &str) -> String {
     }
 }
 
-/// A flow between two features (`'SF-1'.raw`); between two whole functions,
-/// which a flow cannot end on, a connection.
+/// What identifies an exchange among those `flow` is given.
+fn exchange_key(id: &str, label: &str, from: &str, to: &str) -> String {
+    [id, label, from, to].join("\u{0}")
+}
+
+/// A flow cannot end on a whole function: it ends on an item of it
+/// (`'SF-1'.raw`).  An exchange from or to a whole function gives that
+/// function an item, `out` at its source and `in` at its target, named
+/// after the exchange and typed by its exchange item; the flow ends on it.
+pub(super) fn imply_items(e: &mut Exporter<'_>) {
+    let model = e.model;
+    let mut exchanges: Vec<(&str, &str, &str, &str, &str)> = Vec::new();
+    for oa in &model.operational_analysis {
+        for x in &oa.exchanges {
+            exchanges.push((id_of(&x.attributes, ""), x.label.as_deref().unwrap_or(""), &x.data_type, &x.from, &x.to));
+        }
+    }
+    let functional = model.system_analysis.iter().flat_map(|sa| sa.functional_exchanges.iter())
+        .chain(model.logical_architecture.iter().flat_map(|la| la.functional_exchanges.iter()))
+        .chain(model.physical_architecture.iter().flat_map(|pa| pa.functional_exchanges.iter()));
+    for x in functional {
+        exchanges.push((&x.id, x.label.as_deref().unwrap_or(""), &x.data_type, &x.from_port, &x.to_port));
+    }
+    for (id, label, item, from, to) in exchanges {
+        let (Some(source), Some(target)) = (e.targets.get(from).cloned(), e.targets.get(to).cloned()) else { continue };
+        // Only between functions: an end on anything else (an actor, a
+        // part) stays a connection.
+        let of_function = |t: &Target| {
+            let mut owner = t.clone();
+            owner.segments.pop();
+            e.functions.contains(t) || e.functions.contains(&owner)
+        };
+        if !of_function(&source) || !of_function(&target) {
+            continue;
+        }
+        let (source_whole, target_whole) = (e.functions.contains(&source), e.functions.contains(&target));
+        if !source_whole && !target_whole {
+            continue;
+        }
+        let name = [label, id, item].into_iter().find(|n| !n.is_empty()).unwrap_or("item");
+        let mut end = |e: &mut Exporter<'_>, at: Target, whole: bool, direction: &'static str| -> String {
+            if !whole {
+                return String::new();
+            }
+            let items = e.implied.entry(at).or_default();
+            let mut unique = name.to_string();
+            let mut n = 1;
+            while items.iter().any(|(_, taken, _)| *taken == unique) {
+                n += 1;
+                unique = format!("{name} ({n})");
+            }
+            items.push((direction, unique.clone(), item.to_string()));
+            text::name(&unique)
+        };
+        let source_item = end(e, source, source_whole, "out");
+        let target_item = end(e, target, target_whole, "in");
+        e.implied_ends.insert(exchange_key(id, label, from, to), (source_item, target_item));
+    }
+}
+
+/// A flow between two features (`'SF-1'.raw`), a whole function's end on
+/// the item `imply_items` gave it.
 pub(super) fn flow(e: &mut Exporter<'_>, id: &str, label: &str, item: &str, from: &str, to: &str) {
-    let (Some(source), Some(target)) = (e.feature(from), e.feature(to)) else {
+    let (Some(mut source), Some(mut target)) = (e.feature(from), e.feature(to)) else {
         e.line(&format!("// flow {} from {from} to {to}: an end is not exported", text::name(label)));
         return;
     };
+    if let Some((source_item, target_item)) = e.implied_ends.get(&exchange_key(id, label, from, to)) {
+        for (end, item) in [(&mut source, source_item), (&mut target, target_item)] {
+            if !item.is_empty() {
+                end.push('.');
+                end.push_str(item);
+            }
+        }
+    }
     let declared = connector_head(id, label);
     if !source.contains('.') || !target.contains('.') {
         e.line(&format!("connection {declared}connect {source} to {target};"));

@@ -89,7 +89,7 @@ SysML says most Arcadia kinds by itself; metadata names the rest.
 | physical path | `part` involving its links by `dependency involves` | `#Path` |
 | component port | `port` usage, direction by `in`/`out` on its port def or `~` conjugation | |
 | physical port | `port` without direction | `#PhysicalPort` |
-| functional exchange / interaction | `flow` between the ports (item parameters) of two actions, carrying its exchange items | |
+| functional exchange / interaction | `flow` between the ports (item parameters) of two actions, carrying its exchange items; an end on a whole action (no port) is an item the exchange gives it, `out` at the source and `in` at the target, named after the exchange | |
 | component exchange / communication mean / physical exchange | `connection` (or `interface`) between the ports of two parts (`'LC-1'.port`), or between the parts themselves when the exchange has no ports | |
 | logical interface | `connection` between two logical components | `#Interface` |
 | physical link | `connection` between two nodes or their physical ports | `#Link` |

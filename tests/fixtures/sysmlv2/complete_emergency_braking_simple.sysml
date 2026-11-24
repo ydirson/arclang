@@ -121,9 +121,11 @@ package <EmergencyBrakingSystem> 'Automotive Emergency Braking System (AEB)' {
             doc /* The vehicle being controlled */
             perform action <'OA-MonitorEnvironment'> MonitorEnvironment {
                 doc /* Continuously observe the surroundings */
+                out item ThreatDetection : Data::Data;
             }
             perform action <'OA-DetectThreat'> DetectThreat {
                 doc /* Identify a potential collision */
+                in item ThreatDetection : Data::Data;
             }
             perform action <'OA-AlertDriver'> AlertDriver {
                 doc /* Warn the driver of the imminent danger */
@@ -153,7 +155,7 @@ package <EmergencyBrakingSystem> 'Automotive Emergency Braking System (AEB)' {
         dependency involves from 'OC-001' to 'OE-Vehicle';
         connection DriverCommands connect 'OA-ACT-001' to 'OE-Vehicle'.'OA-MonitorEnvironment';
         connection EnvironmentData connect 'OA-ACT-003' to 'OE-Vehicle'.'OA-MonitorEnvironment';
-        flow ThreatDetection of Data::Data from 'OE-Vehicle'.'OA-MonitorEnvironment' to 'OE-Vehicle'.'OA-DetectThreat';
+        flow ThreatDetection of Data::Data from 'OE-Vehicle'.'OA-MonitorEnvironment'.ThreatDetection to 'OE-Vehicle'.'OA-DetectThreat'.ThreatDetection;
         connection DriverWarning connect 'OE-Vehicle'.'OA-AlertDriver' to 'OA-ACT-001';
         connection BrakingAction connect 'OE-Vehicle'.'OA-ApplyBrakes' to 'OE-Vehicle';
         connection PedestrianProtection connect 'OE-Vehicle'.'OA-ApplyBrakes' to 'OA-ACT-002';

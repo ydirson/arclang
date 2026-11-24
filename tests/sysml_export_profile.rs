@@ -100,3 +100,27 @@ fn a_type_of_physical_ports_is_a_port_definition() {
     assert!(text.contains("abstract port def Signal"), "{text}");
     assert!(!text.contains("part def Signal"), "{text}");
 }
+
+#[test]
+fn an_interaction_between_whole_activities_is_a_flow_between_their_items() {
+    let text = exported(
+        "operational_analysis \"OA\" {
+    actor \"Writer\" { id: \"OA-W\" }
+    actor \"Reader\" { id: \"OA-R\" }
+    operational_activity \"Write\" { id: \"OA-ACT-W\" performed_by: \"OA-W\" }
+    operational_activity \"Read\" { id: \"OA-ACT-R\" performed_by: \"OA-R\" }
+    interaction \"Letter\" { id: \"OA-X\" from: \"OA-ACT-W\" to: \"OA-ACT-R\" data_type: \"Text\" }
+}
+",
+    );
+    let item = |action: &str| {
+        let block = &text[text.find(&format!("action <'{action}'>")).unwrap()..];
+        block[..block.find('}').unwrap()].to_string()
+    };
+    assert!(item("OA-ACT-W").contains("out item Letter : "), "{text}");
+    assert!(item("OA-ACT-R").contains("in item Letter : "), "{text}");
+    assert!(text.contains("flow <'OA-X'> Letter of "), "{text}");
+    assert!(text.contains(" from 'OA-ACT-W'.Letter to 'OA-ACT-R'.Letter;"), "{text}");
+    assert!(!text.contains("connection <'OA-X'>"), "{text}");
+    assert!(!text.contains("not exported"), "{text}");
+}
